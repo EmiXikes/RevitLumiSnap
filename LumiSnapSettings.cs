@@ -1,12 +1,10 @@
 ﻿using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
-using LumiSnap.VM;
 using LumiSnap.VIEW;
+using LumiSnap.VM;
 using System.Collections.Generic;
 using System.Windows;
-using Autodesk.Revit.DB.ExtensibleStorage;
-using System;
 
 namespace EpicLumiSnap
 {
@@ -36,13 +34,31 @@ namespace EpicLumiSnap
                 // Default Values
                 MySettings = new LumiSnapSettingsData()
                 {
-                    DistanceFwd = "1500",
-                    DistanceRev = "500",
+                    DistanceFwd = 1500,
+                    DistanceRev = 500,
                     ViewName = "EpicC"
                 };
             }
 
+
+            FilteredElementCollector collector = new FilteredElementCollector(doc);
+            ICollection<ElementId> linkedDocIdSet =
+              collector
+              .OfCategory(BuiltInCategory.OST_RvtLinks)
+              .OfClass(typeof(RevitLinkType))
+              .ToElementIds();
+
+
             List<Document> linkedDocs = new List<Document>();
+            List<RevitLinkType> linkedDocTypes = new List<RevitLinkType>();
+
+            foreach (ElementId linkedFileId in linkedDocIdSet)
+            {
+                RevitLinkType link = doc.GetElement(linkedFileId) as RevitLinkType;
+                linkedDocTypes.Add(link);
+
+            }
+
             foreach (Document LinkedDoc in uiapp.Application.Documents)
             {
                 if (LinkedDoc.IsLinked)
@@ -51,21 +67,36 @@ namespace EpicLumiSnap
                 }
             }
 
+
+
+
             // UI
             Window uiWin = new Window();
             uiWin.WindowStartupLocation = WindowStartupLocation.CenterScreen;
             uiWin.Width = 650; uiWin.Height = 300;
             uiWin.ResizeMode = ResizeMode.NoResize;
-            uiWin.Title = "LumiSnap Settings";
+            uiWin.Title = "LumiSnap Settings v2";
 
             LumiSnapSettingsVM uiData = new LumiSnapSettingsVM()
             {
                 DistanceRev = MySettings.DistanceRev,
                 DistanceFwd = MySettings.DistanceFwd,
                 CollisionViewName = MySettings.ViewName,
-                CollisionLinks = linkedDocs,
+                CollisionLinks = linkedDocTypes,
 
             };
+
+            int ind = 0;
+            foreach (var link in linkedDocTypes)
+            {
+                if (MySettings.LinkId == link.Id)
+                {
+                    ind = linkedDocTypes.IndexOf(link);
+                    break;
+                }
+            }
+            uiData.SelectedIndex = ind;
+
             uiData.OnRequestClose += (s, e) => uiWin.Close();
 
             uiWin.Content = new LumiSnapSettingsUI();
@@ -81,6 +112,7 @@ namespace EpicLumiSnap
             MySettings.DistanceRev = uiData.DistanceRev;
             MySettings.DistanceFwd = uiData.DistanceFwd;
             MySettings.ViewName = uiData.CollisionViewName;
+            MySettings.LinkId = uiData.SelectedLink.Id;
 
             MySettingStorage.WriteSettings(doc, MySettings);
 

@@ -38,19 +38,19 @@ namespace EpicLumiSnap
 
             return refPlane;
         }
-        public static XYZ GetCeilingPoint(View3D view3D, XYZ initialPosition, double revDistance)
+        public static XYZ GetSnapSurfacePoint(View3D view3D, XYZ initialPosition, double revDistance, double fwdDistance, List<BuiltInCategory> builtInCats, out Reference snapRef)
         {
 
             XYZ initialDeltaPosition = initialPosition - new XYZ(0, 0, revDistance);
             XYZ rayDirection = new XYZ(0, 0, 1);
 
-            List<BuiltInCategory> builtInCats = new List<BuiltInCategory>();
+            //List<BuiltInCategory> builtInCats = new List<BuiltInCategory>();
 
-            builtInCats.Add(BuiltInCategory.OST_Roofs);
-            builtInCats.Add(BuiltInCategory.OST_Ceilings);
-            builtInCats.Add(BuiltInCategory.OST_Floors);
-            builtInCats.Add(BuiltInCategory.OST_Walls);
-            builtInCats.Add(BuiltInCategory.OST_Stairs);
+            //builtInCats.Add(BuiltInCategory.OST_Roofs);
+            //builtInCats.Add(BuiltInCategory.OST_Ceilings);
+            //builtInCats.Add(BuiltInCategory.OST_Floors);
+            //builtInCats.Add(BuiltInCategory.OST_Walls);
+            //builtInCats.Add(BuiltInCategory.OST_Stairs);
 
             ElementMulticategoryFilter intersectFilter
               = new ElementMulticategoryFilter(builtInCats);
@@ -69,10 +69,78 @@ namespace EpicLumiSnap
             if (referenceWithContext != null)
             {
                 //var i = referenceWithContext.GetType();
+                snapRef = referenceWithContext.GetReference();
                 return referenceWithContext.GetReference().GlobalPoint;
             }
-
+            snapRef = null;
             return initialPosition;
+        }
+
+        public View3D CreateNewView(Document doc, string viewName)
+        {
+            var collector = new FilteredElementCollector(doc);
+            var viewFamilyType = collector.OfClass(typeof(ViewFamilyType)).Cast<ViewFamilyType>()
+              .FirstOrDefault(x => x.ViewFamily == ViewFamily.ThreeDimensional);
+
+            View3D view3D = View3D.CreateIsometric(doc, viewFamilyType.Id);
+            view3D.Name = viewName;
+            view3D.Discipline = ViewDiscipline.Coordination;
+
+            return view3D;
+        }
+
+        public static void SetVisibleCats(Document doc, List<BuiltInCategory> snapCats, View3D view3D)
+        {
+            List<int> snapCatsIds = new List<int>();
+            foreach (var sC in snapCats)
+            {
+                snapCatsIds.Add(new ElementId(sC).IntegerValue);
+            }
+
+            Categories categories = doc.Settings.Categories;
+
+            foreach (Category category in categories)
+            {
+                if (snapCatsIds.Contains(category.Id.IntegerValue))
+                {
+                    category.set_Visible(view3D, true);
+                }
+                else
+                {
+                    if (category.get_AllowsVisibilityControl(view3D))
+                    {
+                        category.set_Visible(view3D, false);
+                    }
+                }
+            }
+        }
+
+        public static void SetVisibleLink(Document doc, LumiSnapSettingsData MySettings, View3D ceilCheckView)
+        {
+            FilteredElementCollector collector = new FilteredElementCollector(doc);
+            ICollection<ElementId> linkedDocIdSet =
+              collector
+              .OfCategory(BuiltInCategory.OST_RvtLinks)
+              .OfClass(typeof(RevitLinkType))
+              .ToElementIds();
+
+            foreach (ElementId linkedFileId in linkedDocIdSet)
+            {
+                Element link = doc.GetElement(linkedFileId);
+                if (link.CanBeHidden(ceilCheckView))
+                {
+                    if (MySettings.LinkId == link.Id)
+                    {
+                        ceilCheckView.UnhideElements(new List<ElementId>() { link.Id });
+                    }
+                    else
+                    {
+                        ceilCheckView.HideElements(new List<ElementId>() { link.Id });
+                    }
+                }
+
+
+            }
         }
 
         #region Settings
@@ -80,14 +148,15 @@ namespace EpicLumiSnap
         public class LumiSnapSettingsData
         {
             public string ViewName { get; set; }
-            public string DistanceRev { get; set; }
-            public string DistanceFwd { get; set; }
+            public double DistanceRev { get; set; }
+            public double DistanceFwd { get; set; }
+            public ElementId LinkId { get; set; }
         }
 
         public static class LumiSnapSettingsSchema
         {
             readonly static Guid schemaGuid = new Guid(
-              "FD5ADE10-367E-48A5-B21A-5E44D73B8224");
+              "41EB8254-C9F3-418D-AD4B-1FE08FD0A1A2");
 
             public static Schema GetSchema()
             {
@@ -99,9 +168,16 @@ namespace EpicLumiSnap
 
                 schemaBuilder.SetSchemaName("LumiSnapSettings");
 
+                FieldBuilder myField;
                 schemaBuilder.AddSimpleField("ViewName", typeof(string));
-                schemaBuilder.AddSimpleField("DistanceRev", typeof(string));
-                schemaBuilder.AddSimpleField("DistanceFwd", typeof(string));
+
+                myField = schemaBuilder.AddSimpleField("DistanceRev", typeof(double));
+                myField.SetUnitType(UnitType.UT_Length);
+
+                myField = schemaBuilder.AddSimpleField("DistanceFwd", typeof(double));
+                myField.SetUnitType(UnitType.UT_Length);
+
+                myField = schemaBuilder.AddSimpleField("LinkId", typeof(ElementId));
 
                 return schemaBuilder.Finish();
             }
@@ -146,8 +222,9 @@ namespace EpicLumiSnap
                 LumiSnapSettingsData settings = new LumiSnapSettingsData();
 
                 settings.ViewName = settingsEntity.Get<string>("ViewName");
-                settings.DistanceRev = settingsEntity.Get<string>("DistanceRev");
-                settings.DistanceFwd = settingsEntity.Get<string>("DistanceFwd");
+                settings.DistanceRev = settingsEntity.Get<double>("DistanceRev", DisplayUnitType.DUT_MILLIMETERS);
+                settings.DistanceFwd = settingsEntity.Get<double>("DistanceFwd", DisplayUnitType.DUT_MILLIMETERS);
+                settings.LinkId = settingsEntity.Get<ElementId>("LinkId");
 
                 return settings;
             }
@@ -166,8 +243,9 @@ namespace EpicLumiSnap
                 Entity settingsEntity = new Entity(LumiSnapSettingsSchema.GetSchema());
 
                 settingsEntity.Set("ViewName", settings.ViewName);
-                settingsEntity.Set("DistanceRev", settings.DistanceRev);
-                settingsEntity.Set("DistanceFwd", settings.DistanceFwd);
+                settingsEntity.Set("DistanceRev", settings.DistanceRev, DisplayUnitType.DUT_MILLIMETERS);
+                settingsEntity.Set("DistanceFwd", settings.DistanceFwd, DisplayUnitType.DUT_MILLIMETERS);
+                settingsEntity.Set("LinkId", settings.LinkId);
 
                 //Identify settings data storage
 

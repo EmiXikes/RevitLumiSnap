@@ -22,46 +22,70 @@ namespace EpicLumiSnap
             Autodesk.Revit.ApplicationServices.Application app = uiapp.Application;
             Document doc = uidoc.Document;
 
-            string ceilCheckViewName = "EpicC";
+            List<BuiltInCategory> snapCats = new List<BuiltInCategory>();
 
-            FilteredElementCollector colView = new FilteredElementCollector(doc);
-            View3D ceilCheckView = colView.OfClass(typeof(View3D)).Cast<View3D>().First<View3D>(x => x.Name == ceilCheckViewName);
+            snapCats.Add(BuiltInCategory.OST_Roofs);
+            snapCats.Add(BuiltInCategory.OST_Ceilings);
+            snapCats.Add(BuiltInCategory.OST_Floors);
+            snapCats.Add(BuiltInCategory.OST_Stairs);
 
             FilteredElementCollector levelCollector = new FilteredElementCollector(doc);
-            List<Element> rvtLevels = levelCollector.OfClass(typeof(Level)).ToElements().ToList();
-            List<string> rvtLevelsStr = new List<string>();
-            foreach (Level level in rvtLevels)
-            {
-                rvtLevelsStr.Add(level.Name);
-            }
-
-            List<Document> linkedDocs = new List<Document>();
-            List<string> linkedDocsStr = new List<string>();
-            foreach (Document LinkedDoc in uiapp.Application.Documents)
-            {
-                if (LinkedDoc.IsLinked)
-                {
-                    linkedDocs.Add(LinkedDoc);
-                    linkedDocsStr.Add(System.IO.Path.GetFileName(LinkedDoc.PathName));
-                }
-            }
+            List<Level> rvtLevels = levelCollector.OfClass(typeof(Level)).OfType<Level>().OrderBy(lev => lev.Elevation).ToList();
 
             Transaction trans = new Transaction(doc);
             trans.Start("LumiSnap");
 
-            Level SelectedLevel = (Level)rvtLevels[0];
+            #region Getting saved settings
+            // getting saved settings
+            LumiSnapSettingsStorage MySettingStorage = new LumiSnapSettingsStorage();
+            LumiSnapSettingsData MySettings = MySettingStorage.ReadSettings(doc);
+            if (MySettings == null)
+            {
+                // Default Values
+                MySettings = new LumiSnapSettingsData()
+                {
+                    DistanceFwd = 1500,
+                    DistanceRev = 500,
+                    ViewName = "Epic LumiSnap ceiling check View"
+                };
+            }
+
+            #endregion
+
+            #region creating snap check View
+            // Getting or creating a new view and setting correct VV settings
+            FilteredElementCollector colView = new FilteredElementCollector(doc);
+            View3D ceilCheckView = colView.OfClass(typeof(View3D)).Cast<View3D>().FirstOrDefault<View3D>(x => x.Name == MySettings.ViewName);
+
+            if (ceilCheckView == null)
+            {
+                ceilCheckView = CreateNewView(doc, MySettings.ViewName);
+            }
+
+            SetVisibleCats(doc, snapCats, ceilCheckView);
+
+            SetVisibleLink(doc, MySettings, ceilCheckView);
+
+
+            #endregion
 
             var selection = uidoc.Selection.GetElementIds();
-
-            double tolerance = 20 / mmInFt;
+            Level SelectedLevel = (Level)rvtLevels[0];
 
             foreach (ElementId id in selection)
             {
                 Element selectedElement = uidoc.Document.GetElement(id);
                 FamilyInstance selectedFamInstance = (FamilyInstance)selectedElement;
 
+                #region Parameters to carry over
                 // Getting parameters to be carried over
-                string paramElConnection = selectedFamInstance.get_Parameter(new System.Guid("41a9849c-f9a0-48fd-8b79-9a51cb222a8e")).AsString();
+                string paramElConnection = "";
+                var p = selectedFamInstance.get_Parameter(new System.Guid("41a9849c-f9a0-48fd-8b79-9a51cb222a8e"));
+                if (p != null)
+                {
+                    paramElConnection = p.AsString();
+                }
+                #endregion
 
                 // Getting position and rotation
                 var trf = selectedFamInstance.GetTransform();
@@ -74,20 +98,41 @@ namespace EpicLumiSnap
                 // Adjusting position based on found ceilings
                 // Creating new RefPlane for new postition
                 double reverseSearchDistance = 500 / mmInFt;
-                XYZ ePoint = (selectedElement.Location as LocationPoint).Point;
-                XYZ cPoint = GetCeilingPoint(ceilCheckView, ePoint, reverseSearchDistance);
+                XYZ initialPoint = (selectedElement.Location as LocationPoint).Point;
+                XYZ snapPoint = GetSnapSurfacePoint(
+                    ceilCheckView,
+                    initialPoint,
+                    MySettings.DistanceRev / mmInFt,
+                    MySettings.DistanceFwd / mmInFt,
+                    snapCats,
+                    out Reference snapRef);
 
+                // Get level that corresponds to actual location of the element
+                foreach (Level lvl in rvtLevels)
+                {
+                    if ((selectedElement.Location as LocationPoint).Point.Z < lvl.Elevation)
+                    {
+                        break;
+                    }
+                    SelectedLevel = lvl;
+                }
+
+                // Create new Reference plane
+
+                string newElevationAtLvl =String.Format("{0}", Math.Round( (snapPoint.Z - SelectedLevel.Elevation) * mmInFt  ));
                 string newRefPlaneName = String.Format(
-                    "EpicLumWorkPlane_{0}_EL{1}",
-                    SelectedLevel.Name, (cPoint.Z - SelectedLevel.Elevation) * mmInFt);
+                    "EpicLum_##{0}##_EL{1}",
+                    SelectedLevel.Name, 
+                    newElevationAtLvl
+                    );
 
-                ReferencePlane newRefPlane = CreateNewRefPlane(doc, cPoint.Z, newRefPlaneName);
+                ReferencePlane newRefPlane = CreateNewRefPlane(doc, snapPoint.Z, newRefPlaneName);
 
-                Debug.Print("\nNew RP created: " + newRefPlaneName);
 
-                var famLoc = (selectedFamInstance.Location as LocationPoint).Point;
 
                 // creating new family instance
+                var famLoc = (selectedFamInstance.Location as LocationPoint).Point;
+
                 var familySymbol = selectedFamInstance.Symbol;
                 familySymbol.Activate();
                 FamilyInstance instance = doc.Create.NewFamilyInstance(
@@ -109,20 +154,43 @@ namespace EpicLumiSnap
                     axis,
                     setRotation);
 
+                FilteredElementCollector collector = new FilteredElementCollector(doc);
+                ICollection<Element> linkedDocIdSet =
+                  collector
+                  .OfCategory(BuiltInCategory.OST_RvtLinks)
+                  .OfClass(typeof(RevitLinkType))
+                  .ToElements();
+
+
+                //Document linkedDoc = linkedDocs.FirstOrDefault(d=>d.);
+                //var eID = snapRef.LinkedElementId;
+                //Element E = MySettings.LinkId.GetElement(eID);
+
+                Debug.Print(
+                    String.Format("\nLum [{0}] snapped to {1} [{2}] on '{3}' at {4}",
+                    instance.Id,
+                    snapRef.ElementId,
+                    snapRef.ElementId,
+                    SelectedLevel.Name,
+                    newElevationAtLvl));
+
                 // resetting parameters
                 instance.get_Parameter(new System.Guid("41a9849c-f9a0-48fd-8b79-9a51cb222a8e")).Set(paramElConnection);
 
 
 
-                // deleting the old one
+                // deleting the old element
                 doc.Delete(id);
             }
-
 
             trans.Commit();
             return Result.Succeeded;
 
         }
+
+
+
+
     }
 
 }

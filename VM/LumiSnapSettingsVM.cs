@@ -12,8 +12,8 @@ namespace LumiSnap.VM
     public class LumiSnapSettingsVM : INPC
     {
         private string collisionViewName;
-        private string distanceRev;
-        private string distanceFwd;
+        private double distanceRev;
+        private double distanceFwd;
 
         public event EventHandler OnRequestClose;
 
@@ -25,13 +25,13 @@ namespace LumiSnap.VM
                 ObservableCollection<string> R = new ObservableCollection<string>();
                 foreach (var item in CollisionLinks)
                 {
-                    R.Add(item.Title);
+                    R.Add(item.Name);
                 }
                 return R;
             }
         }
 
-        public List<Document> CollisionLinks;
+        public List<RevitLinkType> CollisionLinks;
         private int selectedIndex;
 
         public string CollisionViewName
@@ -45,7 +45,7 @@ namespace LumiSnap.VM
                 }
             }
         }
-        public string DistanceRev
+        public double DistanceRev
         {
             get => distanceRev; set
             {
@@ -57,7 +57,7 @@ namespace LumiSnap.VM
 
             }
         }
-        public string DistanceFwd
+        public double DistanceFwd
         {
             get => distanceFwd; set
             {
@@ -83,7 +83,7 @@ namespace LumiSnap.VM
             }
         }
 
-        public Document SelectedDocument
+        public RevitLinkType SelectedLink
         {
             get
             {
@@ -96,7 +96,7 @@ namespace LumiSnap.VM
         public LumiSnapSettingsVM()
         {
             CollisionCatItems = new ObservableCollection<CollisionCatItem>();
-            CollisionLinks = new List<Document>();
+            CollisionLinks = new List<RevitLinkType>();
 
         }
     }
