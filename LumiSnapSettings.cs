@@ -73,9 +73,9 @@ namespace EpicLumiSnap
             // UI
             Window uiWin = new Window();
             uiWin.WindowStartupLocation = WindowStartupLocation.CenterScreen;
-            uiWin.Width = 650; uiWin.Height = 300;
+            uiWin.Width = 250; uiWin.Height = 300;
             uiWin.ResizeMode = ResizeMode.NoResize;
-            uiWin.Title = "LumiSnap Settings v2";
+            uiWin.Title = "LumiSnap Settings";
 
             LumiSnapSettingsVM uiData = new LumiSnapSettingsVM()
             {
@@ -112,7 +112,15 @@ namespace EpicLumiSnap
             MySettings.DistanceRev = uiData.DistanceRev;
             MySettings.DistanceFwd = uiData.DistanceFwd;
             MySettings.ViewName = uiData.CollisionViewName;
-            MySettings.LinkId = uiData.SelectedLink.Id;
+            if (uiData.CollisionLinks != null)
+            {
+                MySettings.LinkId = uiData.SelectedLink.Id;
+            }
+            else
+            {
+                MySettings.LinkId = ElementId.InvalidElementId;
+            }
+            
 
             MySettingStorage.WriteSettings(doc, MySettings);
 

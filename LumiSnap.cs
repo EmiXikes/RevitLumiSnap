@@ -1,5 +1,6 @@
 ﻿using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
+using Autodesk.Revit.DB.ExtensibleStorage;
 using Autodesk.Revit.UI;
 //using EpicLumImporter.UI.ViewModel;
 using System;
@@ -31,6 +32,13 @@ namespace EpicLumiSnap
 
             FilteredElementCollector levelCollector = new FilteredElementCollector(doc);
             List<Level> rvtLevels = levelCollector.OfClass(typeof(Level)).OfType<Level>().OrderBy(lev => lev.Elevation).ToList();
+
+            string ProxyAnnoTagName = "EpicAnnotationProxy";
+
+            var epicAnotationInstances = new FilteredElementCollector(doc)
+                .OfCategory(BuiltInCategory.OST_LightingFixtures)
+                .OfClass(typeof(FamilyInstance))
+                .Cast<FamilyInstance>().Where(x => x.Name == ProxyAnnoTagName).ToList();
 
             Transaction trans = new Transaction(doc);
             trans.Start("LumiSnap");
@@ -176,6 +184,32 @@ namespace EpicLumiSnap
 
                 // resetting parameters
                 instance.get_Parameter(new System.Guid("41a9849c-f9a0-48fd-8b79-9a51cb222a8e")).Set(paramElConnection);
+
+                // Updating proxy tags
+                foreach (var annoInstance in epicAnotationInstances)
+                {
+                    Entity retrievedEntity = annoInstance.GetEntity(LumiAnnoProxySchema.GetSchema());
+                    IList<ElementId> assignedLumIds = retrievedEntity.Get<IList<ElementId>>("LumiIds");
+                    IList<ElementId> newAssignedLums = new List<ElementId>();
+                    
+
+                    foreach (ElementId assignedId in assignedLumIds)
+                    {
+                        if (id == assignedId)
+                        {
+                            newAssignedLums.Add(instance.Id);
+                        }
+                        else
+                        {
+                            newAssignedLums.Add(assignedId);
+                        }
+                    }
+
+                    Entity entity = new Entity(LumiAnnoProxySchema.GetSchema());
+                    entity.Set<IList<ElementId>>("LumiIds", newAssignedLums);
+                    annoInstance.SetEntity(entity);
+
+                }
 
 
 

@@ -143,6 +143,90 @@ namespace EpicLumiSnap
             }
         }
 
+        public static string GetConnectionAnnoProxyData(Document doc, FamilyInstance instance)
+        {
+            Entity retrievedEntity = instance.GetEntity(LumiAnnoProxySchema.GetSchema());
+            IList<ElementId> assignedLumIds = retrievedEntity.Get<IList<ElementId>>("LumiIds");
+
+
+            List<string> selectionELConnections = new List<string>();
+            List<string> selectionELPositions = new List<string>();
+
+            foreach (ElementId id in assignedLumIds)
+            {
+                Element selectedElement = doc.GetElement(id);
+
+                if (selectedElement == null) continue;
+
+                FamilyInstance selectedFamInstance = (FamilyInstance)selectedElement;
+                ElementType selectedType = doc.GetElement(selectedElement.GetTypeId()) as ElementType;
+
+                string paramElConnection = "";
+                string paramElPos = "";
+                var p = selectedFamInstance.get_Parameter(new System.Guid("41a9849c-f9a0-48fd-8b79-9a51cb222a8e"));
+                if (p != null)
+                {
+                    paramElConnection = p.AsString();
+                }
+                p = selectedType.get_Parameter(new System.Guid("4ad68b64-b7cf-4e80-a76f-660a4aadc4c1"));
+                if (p != null)
+                {
+                    paramElPos = p.AsString();
+                }
+
+                selectionELConnections.Add(paramElConnection);
+                selectionELPositions.Add(paramElPos);
+            }
+
+            Dictionary<string, List<string>> groupedConnections = selectionELConnections.GroupBy(x => x).ToDictionary(g => g.Key, g => g.ToList());
+            Dictionary<string, List<string>> groupedPositions = selectionELPositions.GroupBy(x => x).ToDictionary(g => g.Key, g => g.ToList());
+
+            string resultTxt = "";
+
+            foreach (string connectionTxt in groupedConnections.Keys)
+            {
+                resultTxt = resultTxt + connectionTxt + "\n";
+            }
+
+            foreach (var positionValPair in groupedPositions)
+            {
+                if (positionValPair.Value.Count == 1)
+                {
+                    resultTxt = resultTxt + positionValPair.Key + "\n";
+                }
+                else
+                {
+                    resultTxt = resultTxt + positionValPair.Value.Count.ToString() + "x" + positionValPair.Key + "\n";
+                }
+            }
+
+            return resultTxt;
+        }
+
+        public static class LumiAnnoProxySchema
+        {
+            readonly static Guid schemaGuid = new Guid(
+              "F0A1D091-5064-45CE-8105-0F6774AC32E3");  // change this
+
+            public static Schema GetSchema()
+            {
+                Schema schema = Schema.Lookup(schemaGuid);
+
+                if (schema != null) return schema;
+
+                SchemaBuilder schemaBuilder = new SchemaBuilder(schemaGuid);
+
+                schemaBuilder.SetSchemaName("LumiAnnoProxyData");
+
+                //FieldBuilder myField;
+
+                schemaBuilder.AddArrayField("LumiIds", typeof(ElementId));
+
+                return schemaBuilder.Finish();
+            }
+        }
+
+
         #region Settings
 
         public class LumiSnapSettingsData

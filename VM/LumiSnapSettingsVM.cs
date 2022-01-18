@@ -6,18 +6,31 @@ using System.Threading.Tasks;
 using System.Collections.ObjectModel;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
+using System.Windows.Input;
 
 namespace LumiSnap.VM
 {
     public class LumiSnapSettingsVM : INPC
     {
+        #region Private
         private string collisionViewName;
         private double distanceRev;
         private double distanceFwd;
+        private int selectedIndex;
+        private void btnCancel(object obj)
+        {
+            RevitTransactionResult = Result.Cancelled;
+            OnRequestClose(this, new EventArgs());
+        }
+        private void btnOK(object obj)
+        {
+            RevitTransactionResult = Result.Succeeded;
+            OnRequestClose(this, new EventArgs());
+        }
 
-        public event EventHandler OnRequestClose;
+        #endregion
 
-        public ObservableCollection<CollisionCatItem> CollisionCatItems { get; set; }
+        #region Binding points
         public ObservableCollection<string> CollisionLinkNames
         {
             get
@@ -30,10 +43,8 @@ namespace LumiSnap.VM
                 return R;
             }
         }
-
-        public List<RevitLinkType> CollisionLinks;
-        private int selectedIndex;
-
+        public ICommand btn_CANCEL { get; set; }
+        public ICommand btn_OK { get; set; }
         public string CollisionViewName
         {
             get => collisionViewName; set
@@ -69,7 +80,6 @@ namespace LumiSnap.VM
 
             }
         }
-
         public int SelectedIndex
         {
             get => selectedIndex; set
@@ -83,22 +93,33 @@ namespace LumiSnap.VM
             }
         }
 
+        #endregion
+
+        public event EventHandler OnRequestClose;
+        public ObservableCollection<CollisionCatItem> CollisionCatItems { get; set; }
+        public List<RevitLinkType> CollisionLinks;
+        public Result RevitTransactionResult { get; set; }
         public RevitLinkType SelectedLink
         {
             get
             {
+                if (CollisionLinks.Count == 0)
+                {
+                    return null;
+                }
                 return CollisionLinks[SelectedIndex];
             }
         }
-
-        public Result RevitTransactionResult { get; internal set; }
 
         public LumiSnapSettingsVM()
         {
             CollisionCatItems = new ObservableCollection<CollisionCatItem>();
             CollisionLinks = new List<RevitLinkType>();
 
+            btn_OK = new RCommand(btnOK);
+            btn_CANCEL = new RCommand(btnCancel);
         }
+
     }
 
     public class CollisionCatItem : INPC
